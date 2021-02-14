@@ -7,7 +7,7 @@ Module containing the core concept transformation algebra. Usage:
     R(Obj)
 """
 
-from quangis.transformation.type import TypeOperator, Variables
+from quangis.transformation.type import TypeOperator, Variables, Typeclass, Constraint
 from quangis.transformation.algebra import TransformationAlgebra
 
 cct = TransformationAlgebra()
@@ -41,6 +41,41 @@ NominalField = R2(Loc, Nom)
 BooleanField = R2(Loc, Bool)
 NominalInvertedField = R2(Nom, Reg)
 BooleanInvertedField = R2(Bool, Reg)
+
+##############################################################################
+# Typeclasses
+
+subtype = Typeclass("Subtype", var.subtype, var.type)
+subtype.instance(Obj, Val)
+subtype.instance(Reg, Val)
+# etc
+
+param1 = Typeclass("Param1", var.relationship, var.param, dependent=[var.param])
+param1.instance(R1(var.x), var.x)
+param1.instance(R2(var.x, var._), var.x)
+param1.instance(R3(var.x, var._, var._), var.x)
+
+param2 = Typeclass("Param2", var.relationship, var.param, dependent=[var.param])
+param2.instance(R2(var._, var.x), var.x)
+param2.instance(R3(var._, var.x, var._), var.x)
+
+param3 = Typeclass("Param3", var.relationship, var.param, dependent=[var.param])
+param3.instance(R3(var._, var._, var.x), var.x)
+
+param = Typeclass("Param", var.relationship, var.param)
+param.instance(var.rel, var.x, constraints=[param1(var.rel, var.x)])
+param.instance(var.rel, var.x, constraints=[param2(var.rel, var.x)])
+param.instance(var.rel, var.x, constraints=[param3(var.rel, var.x)])
+# etc
+
+
+# Ad-hoc extensional typeclass constructor
+def member(v, options):
+    typeclass = Typeclass("membership")
+    for o in options:
+        typeclass.instance(o)
+    return Constraint(typeclass, v)
+
 
 ##############################################################################
 # Data inputs
@@ -89,13 +124,13 @@ cct.get_attrR = R3a(var.x, var.y, var.z) ** R2(var.x, var.z)
 # functional
 cct.compose = (var.y ** var.z) ** (var.x ** var.y) ** (var.x ** var.z)
 cct.swap = (var.x ** var.y ** var.z) ** (var.y ** var.x ** var.z)
-cct.cast = var.x ** var.y, var.x.subtype(var.y)
+cct.cast = var.x ** var.y, subtype(var.x, var.y)
 
 # derivations
 cct.ratio = Ratio ** Ratio ** Ratio
 cct.product = Ratio ** Ratio ** Ratio
-cct.leq = var.x ** var.x ** Bool, var.x.subtype(Ord)
-cct.eq = var.x ** var.x ** Bool, var.x.subtype(Val)
+cct.leq = var.x ** var.x ** Bool, subtype(var.x, Ord)
+cct.eq = var.x ** var.x ** Bool, subtype(var.x, Val)
 cct.conj = Bool ** Bool ** Bool
 cct.disj = Bool ** Bool ** Bool  # define as not-conjunction
 cct.notj = Bool ** Bool
@@ -108,14 +143,14 @@ cct.centroid = R1(Loc) ** Loc
 cct.name = R1(Nom) ** Nom
 
 # statistical operations
-cct.avg = R2(var.v, var.x) ** var.x, var.v.subtype(Val), var.x.subtype(Itv)
-cct.min = R2(var.v, var.x) ** var.x, var.v.subtype(Val), var.x.subtype(Ord)
-cct.max = R2(var.v, var.x) ** var.x, var.v.subtype(Val), var.x.subtype(Ord)
-cct.sum = R2(var.v, var.x) ** var.x, var.v.subtype(Val), var.x.subtype(Ratio)
+cct.avg = R2(var.v, var.x) ** var.x, subtype(var.v, Val), subtype(var.x, Itv)
+cct.min = R2(var.v, var.x) ** var.x, subtype(var.v, Val), subtype(var.x, Ord)
+cct.max = R2(var.v, var.x) ** var.x, subtype(var.v, Val), subtype(var.x, Ord)
+cct.sum = R2(var.v, var.x) ** var.x, subtype(var.v, Val), subtype(var.x, Ratio)
 # define in terms of: nest2 (merge pi1) (sum)
-cct.contentsum = R2(Reg, var.x) ** R2(Reg, var.x), var.x.subtype(Ratio)
+cct.contentsum = R2(Reg, var.x) ** R2(Reg, var.x), subtype(var.x, Ratio)
 # define in terms of: nest2 (name pi1) (sum)
-cct.coveragesum = R2(var.v, var.x) ** R2(Nom, var.x), var.x.subtype(Ratio), var.v.subtype(Nom)
+cct.coveragesum = R2(var.v, var.x) ** R2(Nom, var.x), subtype(var.x, Ratio), subtype(var.v, Nom)
 
 
 ##########################################################################
@@ -135,12 +170,12 @@ cct.deify = Reg ** R1(Loc)
 cct.nest = var.x ** R1(var.x)  # Puts values into some unary relation
 cct.nest2 = var.x ** var.y ** R2(var.x, var.y)
 cct.nest3 = var.x ** var.y ** var.z ** R3(var.x, var.y, var.z)
-cct.get = R1(var.x) ** var.x, var.x.subtype(Val)
-cct.invert = R2(Loc, var.x) ** R2(var.x, Reg), var.x.subtype(Qlt)
-cct.revert = R2(var.x, Reg) ** R2(Loc, var.x), var.x.subtype(Qlt)
+cct.get = R1(var.x) ** var.x, subtype(var.x, Val)
+cct.invert = R2(Loc, var.x) ** R2(var.x, Reg), subtype(var.x, Qlt)
+cct.revert = R2(var.x, Reg) ** R2(Loc, var.x), subtype(var.x, Qlt)
 # could be definable with a projection operator that is applied to ternary
 # relation (?)
-cct.getamounts = R2(Obj, var.x) ** R2(Obj, Reg) ** R2(Reg, var.x), var.x.subtype(Ratio)
+cct.getamounts = R2(Obj, var.x) ** R2(Obj, Reg) ** R2(Reg, var.x), subtype(var.x, Ratio)
 
 # quantified relations
 # define odist in terms of the minimal ldist
@@ -158,9 +193,9 @@ cct.nDist = R1(Obj) ** R1(Obj) ** R3(Obj, Ratio, Obj) ** R3(Obj, Ratio, Obj)
 cct.lVis = R1(Loc) ** R1(Loc) ** R2(Loc, Itv) ** R3(Loc, Bool, Loc)
 
 # amount operations
-cct.fcont = (R2(var.v, var.x) ** var.x) ** R2(Loc, var.x) ** Reg ** Ratio, var.x.subtype(Qlt), var.v.subtype(Val)
+cct.fcont = (R2(var.v, var.x) ** var.x) ** R2(Loc, var.x) ** Reg ** Ratio, subtype(var.x, Qlt), subtype(var.v, Val)
 cct.ocont = R2(Obj, Reg) ** Reg ** Count
-cct.fcover = R2(Loc, var.x) ** R1(var.x) ** Reg, var.x.subtype(Qlt)
+cct.fcover = R2(Loc, var.x) ** R1(var.x) ** Reg, subtype(var.x, Qlt)
 cct.ocover = R2(Obj, Reg) ** R1(Obj) ** Reg
 
 
@@ -171,16 +206,16 @@ cct.apply = R2(var.x, var.y) ** var.x ** var.y
 
 # Projection (π). Projects a given relation to one of its attributes,
 # resulting in a collection.
-cct.pi1 = var.rel ** R1(var.x), var.rel.param(var.x, at=1)
-cct.pi2 = var.rel ** R1(var.x), var.rel.param(var.x, at=2)
-cct.pi3 = var.rel ** R1(var.x), var.rel.param(var.x, at=3)
+cct.pi1 = var.rel ** R1(var.x), param1(var.rel, var.x)
+cct.pi2 = var.rel ** R1(var.x), param2(var.rel, var.x)
+cct.pi3 = var.rel ** R1(var.x), param3(var.rel, var.x)
 
 # Selection (σ). Selects a subset of the relation using a constraint on
 # attribute values, like equality (eq) or order (leq). Used to be sigmae
 # and sigmale.
 cct.select = (
     (var.x ** var.y ** Bool) ** var.rel ** var.y ** var.rel,
-    var.rel.param(var.x, subtype=True)
+    param(var.rel, var.x1), subtype(var.x1, var.x)
 )
 
 # Join of two unary concepts, like a table join.
@@ -191,14 +226,14 @@ cct.join = R2(var.x, var.y) ** R2(var.y, var.z) ** R2(var.x, var.z)
 # value contained in a collection. Used to be bowtie.
 cct.join_subset = (
     var.rel ** R1(var.x) ** var.rel,
-    var.rel.param(var.x)
+    param(var.rel, var.x)
 )
 
 # Join (⨝*). Substitute the quality of a quantified relation to some
 # quality of one of its keys. Used to be bowtie*.
 cct.join_key = (
     R3(var.x, var.q1, var.y) ** var.rel ** R3(var.x, var.q2, var.y),
-    var.rel.member(R2(var.x, var.q2), R2(var.y, var.q2))
+    member(var.rel, [R2(var.x, var.q2), R2(var.y, var.q2)])
 )
 
 # Join with unary function. Generate a unary concept from one other unary
@@ -220,10 +255,10 @@ cct.join_with2 = (
 # value per key, resulting in a unary core concept relation.
 cct.groupbyL = (
     (var.rel ** var.q2) ** R3(var.l, var.q1, var.r) ** R2(var.l, var.q2),
-    var.rel.member(R1(var.r), R2(var.r, var.q1))
+    member(var.rel, [R1(var.r), R2(var.r, var.q1)])
 )
 
 cct.groupbyR = (
     (var.rel ** var.q2) ** R3(var.l, var.q1, var.r) ** R2(var.r, var.q2),
-    var.rel.member(R1(var.l), R2(var.l, var.q1))
+    member(var.rel, [R1(var.l), R2(var.l, var.q1)])
 )

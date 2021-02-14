@@ -17,7 +17,7 @@ functional programming languages.
 # TypeTerm class.
 from __future__ import annotations
 
-from abc import ABC, abstractmethod
+from abc import ABC
 from functools import partial
 from itertools import chain
 from collections import defaultdict
@@ -74,14 +74,15 @@ class Definition(object):
             else:
                 raise ValueError(f"cannot use extra {type(arg)} in Definition")
 
-        bound_variables = set(t.variables())
-        for constraint in constraints:
-            if not all(
-                    var.wildcard or var in bound_variables
-                    for var in constraint.variables()):
-                raise ValueError(
-                    "all variables in a constraint must be bound by "
-                    "an occurrence in the accompanying type signature")
+        #bound_variables = set(t.variables())
+        #for constraint in constraints:
+        #    if not all(
+        #            var.wildcard or var in bound_variables
+        #            for param in constraint.params
+        #            for var in param.variables()):
+        #        raise ValueError(
+        #            "all variables in a constraint must be bound by "
+        #            "an occurrence in the accompanying type signature")
 
         self.name = name
         self.type = t
@@ -93,8 +94,9 @@ class Definition(object):
         t = self.type.fresh(ctx)
         for constraint in self.constraints:
             new_constraint = constraint.fresh(ctx)
-            for var in new_constraint.variables():
-                var.constraints.add(new_constraint)
+            for param in new_constraint.params:
+                for var in param.variables():
+                    var.constraints.add(new_constraint)
         return t
 
     def __str__(self) -> str:
@@ -239,21 +241,6 @@ class TypeTerm(ABC):
                 for s, t in zip(self.params, other.params))
         return True
 
-    # constraints #############################################################
-
-    def subtype(self, *patterns: TypeTerm) -> Constraint:
-        return MembershipConstraint(self, *patterns, allow_subtype=True)
-
-    def member(self, *patterns: TypeTerm) -> Constraint:
-        return MembershipConstraint(self, *patterns, allow_subtype=False)
-
-    def param(
-            self, target: TypeTerm,
-            subtype: bool = False,
-            at: Optional[int] = None) -> Constraint:
-        return ParameterConstraint(
-            self, target, position=at, allow_subtype=subtype)
-
 
 class TypeOperator(TypeTerm):
     """
@@ -362,113 +349,40 @@ class TypeVar(TypeTerm):
         self.bound = binding
 
         for constraint in self.constraints:
-            constraint.resolve()
             constraint.enforce()
 
 
-class Constraint(ABC):
-    """
-    A constraint enforces that its subject type always remains consistent with
-    whatever condition it represents.
-    """
-
+class Typeclass(object):
     def __init__(
             self,
-            type: TypeTerm,
-            *patterns: TypeTerm,
-            allow_subtype: bool = False):
-        self.subject = type
-        self.patterns = list(patterns)
-        self.allow_subtype = allow_subtype
+            name: str,
+            *params: TypeVar,
+            dependent: Iterable[TypeVar] = ()):
+        self.name = name
+        self.params = list(params)
+        self.dependent = list(dependent)
+        self.instances: List[List[TypeTerm]] = []
 
-    def variables(self) -> Iterable[TypeVar]:
-        return chain(
-            self.subject.variables(),
-            *(t.variables() for t in self.patterns))
+    def instance(self, *params: TypeTerm, constraints: Iterable[Constraint] = ()):
+        self.instances.append(list(params))
 
-    def resolve(self) -> None:
-        self.subject = self.subject.resolve(full=True)
-        self.patterns = [t.resolve(full=True) for t in self.patterns]
-
-    @abstractmethod
-    def fresh(self, ctx: Dict[TypeVar, TypeVar]):
-        return NotImplemented
-
-    @abstractmethod
-    def enforce(self) -> None:
-        """
-        Check that the resolved constraint is still satisfied.
-        """
-        raise NotImplementedError
+    def __call__(self, *params: TypeOperator) -> Constraint:
+        return Constraint(self, *params)
 
 
-class MembershipConstraint(Constraint):
-    """
-    A membership constraint checks that the subject is one of the given types.
-    """
+class Constraint(object):
+    def __init__(self, typeclass: Typeclass, *params: TypeOperator):
+        self.typeclass = typeclass
+        self.params = list(params)
 
-    def __str__(self) -> str:
-        return (
-            f"{self.subject} must be "
-            f"{'a subtype of' if self.allow_subtype else ''} "
-            f"{' or '.join(str(t) for t in self.patterns)}"
-        )
+        #if not all(
+        #        isinstance(t, TypeOperator)
+        #        and all(isinstance(p, TypeVar) for p in t.params)
+        #        for t in self.params):
+            #raise TypeError
 
-    def fresh(self, ctx: Dict[TypeVar, TypeVar]) -> MembershipConstraint:
-        return MembershipConstraint(
-            self.subject.fresh(ctx),
-            *(t.fresh(ctx) for t in self.patterns),
-            allow_subtype=self.allow_subtype)
+    def fresh(self, ctx: Dict[TypeVar, TypeVar]) -> Constraint:
+        return Constraint(self.typeclass, *(t.fresh(ctx) for t in self.params))
 
     def enforce(self) -> None:
-        if not any(
-                self.subject.compatible(pattern, self.allow_subtype)
-                for pattern in self.patterns):
-            raise error.ViolatedConstraint(self)
-
-
-class ParameterConstraint(Constraint):
-    """
-    A parameter constraint checks that the subject is a parameterized type with
-    one of the given types occurring somewhere in its parameters.
-    """
-
-    def __init__(
-            self,
-            *nargs,
-            position: Optional[int] = None,
-            **kwargs):
-        self.position = position
-        super().__init__(*nargs, **kwargs)
-
-    def fresh(self, ctx: Dict[TypeVar, TypeVar]) -> ParameterConstraint:
-        return ParameterConstraint(
-            self.subject.fresh(ctx),
-            *(t.fresh(ctx) for t in self.patterns),
-            allow_subtype=self.allow_subtype,
-            position=self.position)
-
-    def __str__(self) -> str:
-        return (
-            f"{self.subject} must have "
-            f"{'a subtype of ' if self.allow_subtype else ''}"
-            f"{' or '.join(str(t) for t in self.patterns)} as parameter"
-            f"{'' if self.position is None else ' at #' + str(self.position)}"
-        )
-
-    def compatible(self, pattern: TypeTerm) -> bool:
-        if isinstance(self.subject, TypeOperator):
-            if self.position is None:
-                return any(
-                    param.compatible(pattern, self.allow_subtype)
-                    for param in self.subject.params)
-            elif self.position-1 < len(self.subject.params):
-                return self.subject.params[self.position-1].compatible(
-                    pattern, self.allow_subtype)
-            return False
-        else:
-            return True
-
-    def enforce(self) -> None:
-        if not any(self.compatible(pattern) for pattern in self.patterns):
-            raise error.ViolatedConstraint(self)
+        pass
