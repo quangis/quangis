@@ -21,7 +21,7 @@ from abc import ABC
 from functools import partial
 from itertools import chain
 from collections import defaultdict
-from typing import Dict, Optional, Iterable, Union, List, Callable
+from typing import Dict, Optional, Iterable, Union, List, Callable, Set
 
 from quangis import error
 
@@ -63,12 +63,12 @@ class Definition(object):
         relevant information.
         """
 
-        constraints = []
+        constraints = set()
         number_of_data_arguments = 0
 
         for arg in args:
             if isinstance(arg, Constraint):
-                constraints.append(arg)
+                constraints.add(arg)
             elif isinstance(arg, int):
                 number_of_data_arguments = arg
             else:
@@ -86,24 +86,15 @@ class Definition(object):
 
         self.name = name
         self.type = t
-        self.constraints = constraints
+        self.type.constraints = constraints
         self.data = number_of_data_arguments
 
     def instance(self) -> TypeTerm:
         ctx: Dict[TypeVar, TypeVar] = {}
-        t = self.type.fresh(ctx)
-        for constraint in self.constraints:
-            new_constraint = constraint.fresh(ctx)
-            for param in new_constraint.params:
-                for var in param.variables():
-                    var.constraints.add(new_constraint)
-        return t
+        return self.type.fresh(ctx)
 
     def __str__(self) -> str:
-        return (
-            f"{self.name} : {self.type}{', ' if self.constraints else ''}"
-            f"{', '.join(str(c) for c in self.constraints)}"
-        )
+        return f"{self.name} : {self.type}"
 
 
 class TypeTerm(ABC):
@@ -113,6 +104,9 @@ class TypeTerm(ABC):
     type operators.
     """
 
+    def __init__(self):
+        self.constraints = NotImplemented
+
     def __repr__(self):
         return self.__str__()
 
@@ -120,6 +114,22 @@ class TypeTerm(ABC):
         return value == self or (
             isinstance(self, TypeOperator) and
             any(value in t for t in self.params))
+
+    def __str__(self) -> str:
+        res = ""
+        if isinstance(self, TypeOperator):
+            if self.name == 'function':
+                res = f"({self.params[0]} ** {self.params[1]})"
+            elif self.params:
+                res = f'{self.name}({", ".join(str(t) for t in self.params)})'
+            else:
+                res = self.name
+        elif isinstance(self, TypeVar):
+            res = "_" if self.wildcard else f"x{self.id}"
+
+        if self.constraints:
+            return f"{res}, {', '.join(str(c) for c in self.constraints)}"
+        return res
 
     def __pow__(self, other: TypeTerm) -> TypeOperator:
         """
@@ -161,22 +171,23 @@ class TypeTerm(ABC):
         """
 
         if isinstance(self, TypeOperator):
-            return TypeOperator(
+            new: TypeTerm = TypeOperator(
                 self.name,
                 *(t.fresh(ctx) for t in self.params),
                 supertype=self.supertype)
+            new.constraints = set(c.fresh(ctx) for c in self.constraints)
+            return new
         elif isinstance(self, TypeVar):
             assert self.is_resolved(), \
                 "Cannot create a copy of a type with bound variables"
             if self in ctx:
                 return ctx[self]
             else:
-                new = TypeVar(
-                    (c.fresh(ctx) for c in self.constraints),
-                    wildcard=self.wildcard)
+                new = TypeVar(wildcard=self.wildcard)
+                new.constraints = set(c.fresh(ctx) for c in self.constraints)
                 ctx[self] = new
                 return new
-        raise ValueError(f"{self} is neither a type nor a type variable")
+        raise ValueError(f"{self} is of type {type(self)}; neither a type nor a type variable")
 
     def unify(self, other: TypeTerm) -> None:
         """
@@ -208,7 +219,9 @@ class TypeTerm(ABC):
         if isinstance(self, TypeOperator) and self.name == 'function':
             input_type, output_type = self.params
             arg.unify(input_type)
-            return output_type.resolve()
+            result = output_type.resolve()
+            result.constraints = set.union(arg.constraints, self.constraints)
+            return result
         else:
             raise error.NonFunctionApplication(self, arg)
 
@@ -218,6 +231,7 @@ class TypeTerm(ABC):
         variables replaced with their bindings. Otherwise, just resolve the
         current variable.
         """
+        # do sth with constraints?
         if isinstance(self, TypeVar) and self.bound:
             return self.bound.resolve(full)
         elif full and isinstance(self, TypeOperator):
@@ -241,6 +255,18 @@ class TypeTerm(ABC):
                 for s, t in zip(self.params, other.params))
         return True
 
+    def consistent(self, other: TypeTerm) -> bool:
+        """
+        Is the type structurally consistent with another, that is, do they
+        'fit', modulo wildcards.
+        """
+        if isinstance(self, TypeOperator) and isinstance(other, TypeOperator):
+            return self.match(other) and all(
+                s.consistent(t) for s, t in zip(self.params, other.params))
+        return self == other or \
+            (isinstance(self, TypeVar) and self.wildcard) or \
+            (isinstance(other, TypeVar) and other.wildcard)
+
 
 class TypeOperator(TypeTerm):
     """
@@ -255,19 +281,15 @@ class TypeOperator(TypeTerm):
         self.name = name
         self.supertype = supertype
         self.params: List[TypeTerm] = list(params)
+        self.constraints = set()
+
+        assert all(not param.constraints for param in self.params), \
+            "constraints may only appear on the top level"
 
         if self.name == 'function' and self.arity != 2:
             raise ValueError("functions must have 2 argument types")
         if self.supertype and (self.params or self.supertype.params):
             raise ValueError("only nullary types may have supertypes")
-
-    def __str__(self) -> str:
-        if self.name == 'function':
-            return f"({self.params[0]} ** {self.params[1]})"
-        elif self.params:
-            return f'{self.name}({", ".join(str(t) for t in self.params)})'
-        else:
-            return self.name
 
     def __eq__(self, other: object) -> bool:
         if isinstance(other, TypeOperator):
@@ -320,19 +342,13 @@ class TypeVar(TypeTerm):
 
     counter = 0
 
-    def __init__(
-            self,
-            constraints: Iterable[Constraint] = (),
-            wildcard: bool = False):
+    def __init__(self, wildcard: bool = False):
         cls = type(self)
         self.id = cls.counter
         self.bound: Optional[TypeTerm] = None
-        self.constraints = set(constraints)
         self.wildcard = wildcard
+        self.constraints = set()
         cls.counter += 1
-
-    def __str__(self) -> str:
-        return "_" if self.wildcard else f"x{self.id}"
 
     def bind(self, binding: TypeTerm) -> None:
         assert (not self.bound or binding == self.bound), \
@@ -343,13 +359,13 @@ class TypeVar(TypeTerm):
         # constrained to T(A) or T(B); and it has now been bound to T(z). This
         # can work, but only if binding z will still trigger the check that the
         # initial constraint still holds.
-        for var in binding.variables():
-            var.constraints = set.union(var.constraints, self.constraints)
+        #for var in binding.variables():
+        #    var.constraints = set.union(var.constraints, self.constraints)
 
         self.bound = binding
 
-        for constraint in self.constraints:
-            constraint.enforce()
+        #for constraint in self.constraints:
+        #    constraint.enforce()
 
 
 class Typeclass(object):
