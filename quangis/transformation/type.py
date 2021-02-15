@@ -21,7 +21,7 @@ from abc import ABC
 from functools import partial
 from itertools import chain
 from collections import defaultdict
-from typing import Dict, Optional, Iterable, Union, List, Callable, Set
+from typing import Dict, Optional, Iterable, Union, List, Callable
 
 from quangis import error
 
@@ -51,11 +51,7 @@ class Definition(object):
     and can generate fresh instances.
     """
 
-    def __init__(
-            self,
-            name: str,
-            t: TypeTerm,
-            *args: Union[Constraint, int]):
+    def __init__(self, name: str, type: TypeTerm, *args: Union[Constraint, int]):
         """
         Define a function type. Additional arguments are distinguished by their
         type. This helps simplify notation: we won't have to painstakingly
@@ -63,29 +59,28 @@ class Definition(object):
         relevant information.
         """
 
-        constraints = set()
+        constraints = []
         number_of_data_arguments = 0
 
         for arg in args:
             if isinstance(arg, Constraint):
-                constraints.add(arg)
+                constraints.append(arg)
             elif isinstance(arg, int):
                 number_of_data_arguments = arg
             else:
                 raise ValueError(f"cannot use extra {type(arg)} in Definition")
 
-        #bound_variables = set(t.variables())
+        #bound_variables = set(type.variables())
         #for constraint in constraints:
         #    if not all(
         #            var.wildcard or var in bound_variables
-        #            for param in constraint.params
-        #            for var in param.variables()):
+        #            for var in constraint.variables()):
         #        raise ValueError(
         #            "all variables in a constraint must be bound by "
         #            "an occurrence in the accompanying type signature")
 
         self.name = name
-        self.type = t
+        self.type = type
         self.type.constraints = constraints
         self.data = number_of_data_arguments
 
@@ -175,7 +170,7 @@ class TypeTerm(ABC):
                 self.name,
                 *(t.fresh(ctx) for t in self.params),
                 supertype=self.supertype)
-            new.constraints = set(c.fresh(ctx) for c in self.constraints)
+            new.constraints = [c.fresh(ctx) for c in self.constraints]
             return new
         elif isinstance(self, TypeVar):
             assert self.is_resolved(), \
@@ -184,10 +179,10 @@ class TypeTerm(ABC):
                 return ctx[self]
             else:
                 new = TypeVar(wildcard=self.wildcard)
-                new.constraints = set(c.fresh(ctx) for c in self.constraints)
+                new.constraints = [c.fresh(ctx) for c in self.constraints]
                 ctx[self] = new
                 return new
-        raise ValueError(f"{self} is of type {type(self)}; neither a type nor a type variable")
+        raise ValueError(f"{self} is neither a type nor a type variable")
 
     def unify(self, other: TypeTerm) -> None:
         """
@@ -220,7 +215,10 @@ class TypeTerm(ABC):
             input_type, output_type = self.params
             arg.unify(input_type)
             result = output_type.resolve()
-            result.constraints = set.union(arg.constraints, self.constraints)
+            result.constraints = [
+                constraint.resolve()
+                for constraint in chain(arg.constraints, self.constraints)
+            ]
             return result
         else:
             raise error.NonFunctionApplication(self, arg)
@@ -281,7 +279,7 @@ class TypeOperator(TypeTerm):
         self.name = name
         self.supertype = supertype
         self.params: List[TypeTerm] = list(params)
-        self.constraints = set()
+        self.constraints = []
 
         assert all(not param.constraints for param in self.params), \
             "constraints may only appear on the top level"
@@ -347,7 +345,7 @@ class TypeVar(TypeTerm):
         self.id = cls.counter
         self.bound: Optional[TypeTerm] = None
         self.wildcard = wildcard
-        self.constraints = set()
+        self.constraints = []
         cls.counter += 1
 
     def bind(self, binding: TypeTerm) -> None:
@@ -417,10 +415,14 @@ class Constraint(object):
         return \
             f"{self.typeclass.name}({', '.join(str(p) for p in self.params)})"
 
+    def variables(self) -> Iterable[TypeVar]:
+        return chain(*(param.variables() for param in self.params))
+
+    def resolve(self) -> Constraint:
+        return Constraint(self.typeclass, *(t.resolve() for t in self.params))
+
     def fresh(self, ctx: Dict[TypeVar, TypeVar]) -> Constraint:
-        return Constraint(
-            self.typeclass,
-            *[t.fresh(ctx) for t in self.params])
+        return Constraint(self.typeclass, *(t.fresh(ctx) for t in self.params))
 
     def find(self) -> List[TypeTerm]:
         """
