@@ -50,16 +50,16 @@ subtype.instance(Obj, Val)
 subtype.instance(Reg, Val)
 # etc
 
-param1 = Typeclass("Param1", var.relationship, var.param, dependent=[var.param])
+param1 = Typeclass("Param1", var.rel, var.param, dependent=[var.param])
 param1.instance(R1(var.x), var.x)
 param1.instance(R2(var.x, var._), var.x)
 param1.instance(R3(var.x, var._, var._), var.x)
 
-param2 = Typeclass("Param2", var.relationship, var.param, dependent=[var.param])
+param2 = Typeclass("Param2", var.rel, var.param, dependent=[var.param])
 param2.instance(R2(var._, var.x), var.x)
 param2.instance(R3(var._, var.x, var._), var.x)
 
-param3 = Typeclass("Param3", var.relationship, var.param, dependent=[var.param])
+param3 = Typeclass("Param3", var.rel, var.param, dependent=[var.param])
 param3.instance(R3(var._, var._, var.x), var.x)
 
 param = Typeclass("Param", var.relationship, var.param)
@@ -67,14 +67,6 @@ param.instance(var.rel, var.x, constraints=[param1(var.rel, var.x)])
 param.instance(var.rel, var.x, constraints=[param2(var.rel, var.x)])
 param.instance(var.rel, var.x, constraints=[param3(var.rel, var.x)])
 # etc
-
-
-# Ad-hoc extensional typeclass constructor
-def member(v, options):
-    typeclass = Typeclass("membership")
-    for o in options:
-        typeclass.instance(o)
-    return Constraint(typeclass, v)
 
 
 ##############################################################################
@@ -148,9 +140,11 @@ cct.min = R2(var.v, var.x) ** var.x, subtype(var.v, Val), subtype(var.x, Ord)
 cct.max = R2(var.v, var.x) ** var.x, subtype(var.v, Val), subtype(var.x, Ord)
 cct.sum = R2(var.v, var.x) ** var.x, subtype(var.v, Val), subtype(var.x, Ratio)
 # define in terms of: nest2 (merge pi1) (sum)
-cct.contentsum = R2(Reg, var.x) ** R2(Reg, var.x), subtype(var.x, Ratio)
+cct.contentsum = R2(Reg, var.x) ** R2(Reg, var.x), \
+    subtype(var.x, Ratio)
 # define in terms of: nest2 (name pi1) (sum)
-cct.coveragesum = R2(var.v, var.x) ** R2(Nom, var.x), subtype(var.x, Ratio), subtype(var.v, Nom)
+cct.coveragesum = R2(var.v, var.x) ** R2(Nom, var.x), \
+    subtype(var.x, Ratio), subtype(var.v, Nom)
 
 
 ##########################################################################
@@ -175,7 +169,8 @@ cct.invert = R2(Loc, var.x) ** R2(var.x, Reg), subtype(var.x, Qlt)
 cct.revert = R2(var.x, Reg) ** R2(Loc, var.x), subtype(var.x, Qlt)
 # could be definable with a projection operator that is applied to ternary
 # relation (?)
-cct.getamounts = R2(Obj, var.x) ** R2(Obj, Reg) ** R2(Reg, var.x), subtype(var.x, Ratio)
+cct.getamounts = R2(Obj, var.x) ** R2(Obj, Reg) ** R2(Reg, var.x), \
+    subtype(var.x, Ratio)
 
 # quantified relations
 # define odist in terms of the minimal ldist
@@ -193,7 +188,8 @@ cct.nDist = R1(Obj) ** R1(Obj) ** R3(Obj, Ratio, Obj) ** R3(Obj, Ratio, Obj)
 cct.lVis = R1(Loc) ** R1(Loc) ** R2(Loc, Itv) ** R3(Loc, Bool, Loc)
 
 # amount operations
-cct.fcont = (R2(var.v, var.x) ** var.x) ** R2(Loc, var.x) ** Reg ** Ratio, subtype(var.x, Qlt), subtype(var.v, Val)
+cct.fcont = (R2(var.v, var.x) ** var.x) ** R2(Loc, var.x) ** Reg ** Ratio, \
+    subtype(var.x, Qlt), subtype(var.v, Val)
 cct.ocont = R2(Obj, Reg) ** Reg ** Count
 cct.fcover = R2(Loc, var.x) ** R1(var.x) ** Reg, subtype(var.x, Qlt)
 cct.ocover = R2(Obj, Reg) ** R1(Obj) ** Reg
@@ -233,7 +229,7 @@ cct.join_subset = (
 # quality of one of its keys. Used to be bowtie*.
 cct.join_key = (
     R3(var.x, var.q1, var.y) ** var.rel ** R3(var.x, var.q2, var.y),
-    member(var.rel, [R2(var.x, var.q2), R2(var.y, var.q2)])
+    Typeclass.member(var.rel, [R2(var.x, var.q2), R2(var.y, var.q2)])
 )
 
 # Join with unary function. Generate a unary concept from one other unary
@@ -255,10 +251,10 @@ cct.join_with2 = (
 # value per key, resulting in a unary core concept relation.
 cct.groupbyL = (
     (var.rel ** var.q2) ** R3(var.l, var.q1, var.r) ** R2(var.l, var.q2),
-    member(var.rel, [R1(var.r), R2(var.r, var.q1)])
+    Typeclass.member(var.rel, [R1(var.r), R2(var.r, var.q1)])
 )
 
 cct.groupbyR = (
     (var.rel ** var.q2) ** R3(var.l, var.q1, var.r) ** R2(var.r, var.q2),
-    member(var.rel, [R1(var.l), R2(var.l, var.q1)])
+    Typeclass.member(var.rel, [R1(var.l), R2(var.l, var.q1)])
 )

@@ -361,17 +361,33 @@ class Typeclass(object):
         self.name = name
         self.params = list(params)
         self.dependent = list(dependent)
-        self.instances: List[List[TypeTerm]] = []
+        self.instances: List[List[TypeOperator]] = []
 
-    def instance(self, *params: TypeTerm, constraints: Iterable[Constraint] = ()):
+    def is_dependent(self, idx: int) -> bool:
+        return self.params[idx] in self.dependent
+
+    def instance(
+            self,
+            *params: TypeOperator,
+            constraints: Iterable[Constraint] = ()):
         self.instances.append(list(params))
 
-    def __call__(self, *params: TypeOperator) -> Constraint:
+    def __call__(self, *params: TypeTerm) -> Constraint:
         return Constraint(self, *params)
+
+    @staticmethod
+    def member(var: TypeVar, options: Iterable[TypeOperator]):
+        """
+        Ad-hoc extensional typeclass constructor.
+        """
+        typeclass = Typeclass("Membership")
+        for option in options:
+            typeclass.instance(option)
+        return Constraint(typeclass, var)
 
 
 class Constraint(object):
-    def __init__(self, typeclass: Typeclass, *params: TypeOperator):
+    def __init__(self, typeclass: Typeclass, *params: TypeTerm):
         self.typeclass = typeclass
         self.params = list(params)
 
@@ -381,8 +397,31 @@ class Constraint(object):
         #        for t in self.params):
             #raise TypeError
 
+    def __str__(self):
+        return \
+            f"{self.typeclass.name}({', '.join(str(p) for p in self.params)})"
+
     def fresh(self, ctx: Dict[TypeVar, TypeVar]) -> Constraint:
-        return Constraint(self.typeclass, *(t.fresh(ctx) for t in self.params))
+        return Constraint(
+            self.typeclass,
+            *[t.fresh(ctx) for t in self.params])
+
+    def find(self) -> List[TypeTerm]:
+        """
+        Find the instance corresponding to this constraint. None if a single
+        instance cannot yet be determined.
+        """
+        # is there a corresponding instance?
+        for instance in self.typeclass.instances:
+            if all(
+                    (isinstance(cparam, TypeOperator) and
+                        iparam.consistent(cparam.resolve(False))) or
+                    self.typeclass.is_dependent(i)
+                    for i, (iparam, cparam) in
+                    enumerate(zip(instance, self.params))):
+                return instance
+        raise error.ViolatedConstraint(self)
 
     def enforce(self) -> None:
-        pass
+
+        return None
