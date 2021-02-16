@@ -389,16 +389,6 @@ class Typeclass(object):
     def __call__(self, *params: TypeTerm) -> Constraint:
         return Constraint(self, *params)
 
-    @staticmethod
-    def member(var: TypeVar, options: Iterable[TypeOperator]):
-        """
-        Ad-hoc extensional typeclass constructor.
-        """
-        typeclass = Typeclass("Membership")
-        for option in options:
-            typeclass.instance(option)
-        return Constraint(typeclass, var)
-
 
 class Constraint(object):
     def __init__(self, typeclass: Typeclass, *params: TypeTerm):
@@ -418,8 +408,9 @@ class Constraint(object):
     def variables(self) -> Iterable[TypeVar]:
         return chain(*(param.variables() for param in self.params))
 
-    def resolve(self) -> Constraint:
-        return Constraint(self.typeclass, *(t.resolve() for t in self.params))
+    def resolve(self, full: bool = True) -> Constraint:
+        return Constraint(
+            self.typeclass, *(t.resolve(full) for t in self.params))
 
     def fresh(self, ctx: Dict[TypeVar, TypeVar]) -> Constraint:
         return Constraint(self.typeclass, *(t.fresh(ctx) for t in self.params))

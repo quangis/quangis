@@ -68,6 +68,16 @@ Param.instance(var.rel, var.x, constraints=[Param2(var.rel, var.x)])
 Param.instance(var.rel, var.x, constraints=[Param3(var.rel, var.x)])
 # etc
 
+# Typeclass used in join_key
+Key = Typeclass(var.rel, var.key1, var.key2)
+Key.instance(R3(var.key1, var._, var._), var.key1)
+Key.instance(R3(var._, var._, var.key2), var.key2)
+
+# Typeclass used in groupby
+Collection = Typeclass(var.rel, var.x, var.q, dependent=[var.rel])
+Collection.instance(R1(var.x), var.x, var._)
+Collection.instance(R2(var.x, var.q), var.x, var.q)
+
 
 ##############################################################################
 # Data inputs
@@ -225,11 +235,12 @@ cct.join_subset = (
     Param(var.rel, var.x)
 )
 
+
 # Join (⨝*). Substitute the quality of a quantified relation to some
 # quality of one of its keys. Used to be bowtie*.
 cct.join_key = (
-    R3(var.x, var.q1, var.y) ** var.rel ** R3(var.x, var.q2, var.y),
-    Typeclass.member(var.rel, [R2(var.x, var.q2), R2(var.y, var.q2)])
+    R3(var.x, var.q1, var.y) ** R2(var.key, var.q2) ** R3(var.x, var.q2, var.y),
+    Key(R3(var.x, var.q1, var.y), var.key)
 )
 
 # Join with unary function. Generate a unary concept from one other unary
@@ -251,10 +262,10 @@ cct.join_with2 = (
 # value per key, resulting in a unary core concept relation.
 cct.groupbyL = (
     (var.rel ** var.q2) ** R3(var.l, var.q1, var.r) ** R2(var.l, var.q2),
-    Typeclass.member(var.rel, [R1(var.r), R2(var.r, var.q1)])
+    Collection(var.rel, var.r, var.q1)
 )
 
 cct.groupbyR = (
     (var.rel ** var.q2) ** R3(var.l, var.q1, var.r) ** R2(var.r, var.q2),
-    Typeclass.member(var.rel, [R1(var.l), R2(var.l, var.q1)])
+    Collection(var.rel, var.l, var.q1)
 )
